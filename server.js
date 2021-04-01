@@ -127,6 +127,7 @@ const server = app.listen(PORT, () => {
     const host = server.address().address;
     const port = server.address().port;
 
+    console.log(`testing ...`);
     console.log(`Events app listening at http://${host}:${port}`);
 });
 
