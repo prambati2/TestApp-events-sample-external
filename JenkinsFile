@@ -1,0 +1,76 @@
+pipipeline {
+agent any
+stages {
+ stage("Code Checkout from GitHub") {
+  steps {
+   echo 'Verifying Jenkins trigger of build extract from Git Repo...'
+   git branch: 'main',
+    credentialsId: 'jenkins-sq-token',
+    url: 'https://github.com/prambati2/TestApp-events-sample-external.git'
+  }
+ }
+stage('Validate Env') {
+  steps {
+   echo 'Workspace and Version validation...'
+                sh 'echo $WORKSPACE'
+                sh 'gcloud version'
+                sh 'nodejs -v'
+                sh 'npm -v'
+  }
+ }
+
+ stage('Code Quality Check via SonarQube') {
+  steps {
+       script {
+       def scannerHome = tool 'sonarqube-scanner';
+           withSonarQubeEnv("sonarqube-container") {
+           sh "${scannerHome}/bin/sonar-scanner \
+           -Dsonar.projectKey=check-pass-qualitygate \
+           -Dsonar.sources=. \
+           -Dsonar.css.node=. \
+           -Dsonar.host.url=http://35.209.18.164:9000 \
+           -Dsonar.login=admin \
+           -Dsonar.password=sonar"
+               }
+           }
+       }
+   }
+
+ stage("Install Project Dependencies") {
+  environment {
+                PORT = 8081
+            }
+  steps {
+       echo 'install dependencies'
+           sh 'ls -al'
+           sh "npm install"
+           echo 'Run Mock/Sanity Tests'
+           sh 'npm test'
+   }
+  }
+  
+  stage("Quality gate") {
+    steps {
+            waitForQualityGate abortPipeline: true
+        }
+    }
+  
+  stage('Build Docker Image') {
+    steps {
+        echo 'Build id = ${env.BUILD_ID}'
+        echo 'Tests passed and ready to build the docker image and push to container registry'
+        sh 'gcloud builds submit -t gcr.io/devops-2021-308721/external-image:v2.${BUILD_NUMBER} .'
+    }
+}
+    stage('Build Containers') {
+        steps {
+            echo 'Get Cluster Credentials'
+	        sh 'gcloud container clusters get-credentials deloitted-events-feed-cluster --zone us-central1-a --project devops-2021-308721'
+            echo 'Build the comtainers with new image'
+            echo 'gcr.io/devops-2021-308721/external-image:v2.${BUILD_NUMBER}'
+            echo 'deloitted-external-events-feed-deployment'
+            sh 'kubectl set image deployment/deloitted-external-events-feed-deployment deloitted-external-events-feed=gcr.io/devops-2021-308721/external-image:v2.${BUILD_NUMBER} -n deloitted-events-feed --record'
+        }
+    }
+ }
+}
